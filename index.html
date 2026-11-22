@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Happy Monthsary</title>
+<style>
+html,body{margin:0;height:100%;background:#0d0d0d;overflow:hidden;overscroll-behavior:none;touch-action:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hint{position:fixed;right:max(16px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom));
+ font:12px ui-monospace,Menlo,Consolas,"Courier New",monospace;color:#6f6f6f;letter-spacing:.04em;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">[ scroll to bloom ]</div>
+<script>
+(()=>{
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
+const FONT='ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace';
+const TAU=Math.PI*2,D=14;
+const MSGS=["I love you so so much babyyy","cute kaayo pag ga smile ka","I'm so proud of you","You make my life brighter","Always by your side","You are enough, just as you are","Every day with you is my favorite","You deserve every good thing","You're my favorite person","Your smile fixes everything","I believe in you, always babyyy","You're doing amazing, babyyy","Thank you for being you","You are so so loved","I'm here, always","Home is wherever you are","I adore you more every day","You light up every room","I'm so grateful for you","Take your time, I've got you","You are my sunshine","kiss","You're beautiful inside and out","I choose you, every single day","You are magic, babyyy","Rest, you've earned it","My heart is yours","You're my best everything","I'm so lucky it's you","You're stronger than you know","I'll hold your hand always","Mwah, I miss you already","You're my safe place","Everything is better with you","You're loved more than you know","I'm cheering for you always","You're my favorite hello","I fall for you every day","You're so worth it","You're my happy place","Thank you for loving me","You did so well today","You make me better","I'm yours, babyyy","Look how far you've come","You're everything to me","I'm proud to be yours"];
+const TXT=MSGS.map(m=>m.replace(/\s+/g,''));
+
+// ---- palette: pink, red, yellow, orange, green, off-white, sunflower-center brown; 5 brightness levels each
+const BASE=['#ff79c6','#ff3b3b','#ffd93d','#ff9a1f','#3ddc57','#ece6d6','#c07a34'];
+const STY=[];
+for(const h of BASE){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
+ for(let l=0;l<8;l++){const m=.4+.6*l/7;STY.push(`rgb(${r*m|0},${g*m|0},${b*m|0})`)}}
+const PINK=0,RED=1,YEL=2,ORG=3,GRN=4,WHT=5,BRN=6;
+
+// ---- flower definitions: petal rings. a0 = base angle above petal plane [closed,open], k = curl rate [closed,open]
+const TYPES={
+ cosmos:{c:PINK,ctr:{c:YEL,r:.13,dome:.05},rings:[{n:8,R:.9,W:.34,sh:0,a0:[1.3,.2],k:[.3,-.55],r0:.07}]},
+ red:{c:RED,rings:[
+  {n:5,R:.45,W:.27,sh:2,a0:[1.5,1.1],k:[.2,-.4],r0:.03},
+  {n:6,R:.7,W:.31,sh:2,a0:[1.45,.7],k:[.25,-.5],r0:.1,off:.5},
+  {n:7,R:.92,W:.33,sh:2,a0:[1.4,.3],k:[.3,-.65],r0:.18,off:.25}]},
+ sun:{c:YEL,ctr:{c:BRN,r:.5,dome:1},rings:[
+  {n:20,R:.78,W:.19,sh:1,a0:[1.35,.12],k:[.3,-.35],r0:.4},
+  {n:20,R:.62,W:.17,sh:1,a0:[1.42,.32],k:[.3,-.2],r0:.38,off:.5}]},
+ tulip:{c:ORG,rings:[
+  {n:3,R:.88,W:.36,sh:2,a0:[1.52,1.0],k:[.08,-.6],r0:.12},
+  {n:3,R:.78,W:.34,sh:2,a0:[1.52,1.2],k:[.05,-.45],r0:.09,off:.5}]}
+};
+const wd=(sh,s)=>sh==0?Math.pow(s,.45)*(1-.5*s*s*s):sh==1?Math.sin(Math.PI*Math.pow(s,.75)):Math.sin(Math.PI*Math.min(1,.08+.9*s));
+
+// ---- bouquet layout
+const APEX=[0,-2.3,0],flowers=[],leaves=[];
+const nrm=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l]};
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+(()=>{
+ const defs=[['red',0,2.05,0,.5]];
+ const ring=(ty,r,y,o,sc)=>ty.forEach((t,k)=>{const a=k/ty.length*TAU+o;defs.push([t,r*Math.cos(a),y,r*Math.sin(a),t=='sun'?sc*1.12:sc])});
+ ring(['red','cosmos','red','cosmos','red','cosmos','red'],.95,1.75,.3,.44);
+ ring(['cosmos','red','cosmos','red','tulip','red','cosmos','red','cosmos','red'],1.6,1.3,.5,.44);
+ ring(['red','cosmos','sun','red','cosmos','red','cosmos','sun','red','cosmos','red'],2.2,.85,.2,.44);
+ defs.forEach((d,i)=>{
+  const H=[d[1],d[2],d[3]],A=nrm([H[0]*.6,1.2,H[2]*.6]),ref=Math.abs(A[2])>.9?[1,0,0]:[0,0,1],U=nrm(cross(A,ref)),V=cross(A,U);
+  flowers.push({tid:i%32,t:d[0],H,A,U,V,sc:d[4],del:(i*.37%1)*.33,rot:i*1.7,C:[(H[0]-A[0]*1.2)*.7,H[1]-A[1]*1.2,(H[2]-A[2]*1.2)*.7]});
+ });
+ for(let k=0;k<18;k++)leaves.push({th:k/18*TAU+.15,L:1.4+.5*((k*7)%3)/2});
+})();
+
+// ---- state
+let W,H,dpr,cw,chh,cols,rows,zb,chr,gi,co,S,cx0,cy0,dens=1,fs;
+let cY,sY,cT,sT;
+const Lv=nrm([-.35,.65,.75]);
+function resize(){
+ dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;
+ cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+ fs=Math.max(7,Math.min(14,Math.round(Math.min(W/105,H/85))));
+ ctx.font=fs+'px '+FONT;cw=ctx.measureText('M').width;chh=fs*1.02;
+ cols=Math.ceil(W/cw);rows=Math.ceil(H/chh);
+ zb=new Float32Array(cols*rows);chr=new Uint8Array(cols*rows);co=new Uint8Array(cols*rows);gi=new Uint16Array(cols*rows);
+ S=Math.min(H*.9/5.2,W*.88/5.8);cx0=W/2;cy0=H*.52;dens=Math.max(.75,Math.min(1.6,S/chh/9));
+}
+addEventListener('resize',resize);resize();
+
+// ---- z-buffered point plotter: rotate (spin + forward tilt), project, light, shade
+function plot(x,y,z,nx,ny,nz,c,t,g){
+ const x1=x*cY+z*sY,z1=-x*sY+z*cY,y2=y*cT-z1*sT,z2=y*sT+z1*cT,f=D/(D-z2);
+ const col=((cx0+x1*S*f)/cw)|0,row=((cy0-y2*S*f)/chh)|0;
+ if(col<0||col>=cols||row<0||row>=rows)return;
+ const i=row*cols+col;if(z2<=zb[i])return;
+ const a=nx*cY+nz*sY,b=-nx*sY+nz*cY,m=ny*cT-b*sT,n=ny*sT+b*cT;
+ const sh=Math.min(.999,.12+.95*Math.abs(a*Lv[0]+m*Lv[1]+n*Lv[2]));
+ zb[i]=z2;chr[i]=t+1;gi[i]=g;co[i]=c*8+((sh*8)|0);
+}
+
+const RA=[],AX=[],WW=[],CA=[],SA=[];
+function drawFlower(f,b){
+ const T=TYPES[f.t],A=f.A,U=f.U,V=f.V,H=f.H,sc=f.sc,ns=Math.round(8*dens),nt=Math.round(6*dens);
+ for(const g of T.rings){
+  const a0=g.a0[0]+(g.a0[1]-g.a0[0])*b;let k=g.k[0]+(g.k[1]-g.k[0])*b;if(Math.abs(k)<.02)k=.02;
+  const lat=.6+.4*b;
+  for(let i=0;i<ns;i++){const s=(i+.5)/ns,al=a0+k*s;
+   RA[i]=g.r0+g.R*(Math.sin(al)-Math.sin(a0))/k;AX[i]=g.R*(Math.cos(a0)-Math.cos(al))/k;
+   WW[i]=wd(g.sh,s)*g.W;CA[i]=Math.cos(al);SA[i]=Math.sin(al)}
+  for(let p=0;p<g.n;p++){
+   const phi=(p+(g.off||0))/g.n*TAU+f.rot,cp=Math.cos(phi),sp=Math.sin(phi);
+   const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
+   const lx=-sp*U[0]+cp*V[0],ly=-sp*U[1]+cp*V[1],lz=-sp*U[2]+cp*V[2];
+   for(let i=0;i<ns;i++){
+    const nx=-SA[i]*ex+CA[i]*A[0],ny=-SA[i]*ey+CA[i]*A[1],nz=-SA[i]*ez+CA[i]*A[2];
+    for(let j=0;j<nt;j++){
+     const t=(j+.5)/nt*2-1,lt=t*WW[i]*lat,ax=AX[i]+.3*t*t*WW[i]*b;
+     plot(H[0]+sc*(RA[i]*ex+ax*A[0]+lt*lx),H[1]+sc*(RA[i]*ey+ax*A[1]+lt*ly),H[2]+sc*(RA[i]*ez+ax*A[2]+lt*lz),nx,ny,nz,T.c,f.tid,p*ns*nt+i*nt+j);
+    }}}
+ }
+ if(T.ctr){ // phyllotaxis centre disc (dark domed sunflower seed head / yellow cosmos eye)
+  const cr=T.ctr.r*(.55+.45*b),N=Math.round(170*dens*Math.max(.4,T.ctr.r*2));
+  for(let i=0;i<N;i++){
+   const q=(i+.5)/N,rr=cr*Math.sqrt(q),th=i*2.39996,cp=Math.cos(th),sp=Math.sin(th),ax=T.ctr.dome*.14*(1-q)+.02;
+   const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
+   plot(H[0]+sc*(rr*ex+ax*A[0]),H[1]+sc*(rr*ey+ax*A[1]),H[2]+sc*(rr*ez+ax*A[2]),
+    A[0]+.6*Math.sqrt(q)*ex,A[1]+.6*Math.sqrt(q)*ey,A[2]+.6*Math.sqrt(q)*ez,T.ctr.c,f.tid,i);
+  }
+ }
+}
+function drawStem(f){
+ const n=Math.round(60*dens),C=f.C,Hh=f.H;
+ for(let i=0;i<=n;i++){
+  const t=i/n,u=1-t,a=u*u,b=2*u*t,c=t*t;
+  const x=a*APEX[0]+b*C[0]+c*Hh[0],y=a*APEX[1]+b*C[1]+c*Hh[1],z=a*APEX[2]+b*C[2]+c*Hh[2];
+  plot(x,y,z,.5,.3,.8,GRN,f.tid,i);plot(x+.03,y,z+.03,.5,.3,.8,GRN,f.tid,i+2);
+ }
+}
+function drawLeaf(lf,b){
+ const el=1.25-.35*b,ce=Math.cos(el),se=Math.sin(el),ct=Math.cos(lf.th),st=Math.sin(lf.th);
+ const d=[ce*ct,se,ce*st],l=[-st,0,ct],nn=[d[1]*l[2],d[2]*l[0]-d[0]*l[2],-d[1]*l[0]];
+ const O=[1.4*ct,.1,1.4*st],ns=Math.round(10*dens),nt=Math.round(7*dens);
+ for(let i=0;i<ns;i++){const s=(i+.5)/ns,w=.3*Math.sin(Math.PI*Math.pow(s,.8)),r=s*lf.L,dr=.3*s*s;
+  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1;
+   plot(O[0]+d[0]*r+l[0]*t*w,O[1]+d[1]*r-dr,O[2]+d[2]*r+l[2]*t*w,nn[0]+l[0]*t*.6,nn[1],nn[2]+l[2]*t*.6,GRN,3,i*nt+j);
+  }}
+}
+function drawBow(){
+ const tb=1.2,cb=Math.cos(tb),sb=Math.sin(tb),by=-.95,Rb=1.9*(1.35/2.4)*(1+.07*Math.sin(9*tb))+.07;
+ const P=(la,ve,ou,ny,g)=>plot(cb*(Rb+ou)-sb*la,by+ve,sb*(Rb+ou)+cb*la,cb,ny,sb,PINK,1,g);
+ const n=Math.round(14*dens),m=Math.round(9*dens);
+ for(const s of[-1,1])for(let i=0;i<n;i++){const u=(i+.5)/n,sn=Math.pow(Math.sin(Math.PI*u),.7);
+  for(let j=0;j<m;j++){const v=(j+.5)/m*2-1;P(s*(.08+.5*u),v*.24*sn*(.35+.65*u)+.1*u,.07+.1*Math.sin(Math.PI*u),.3+v*.5,i*m+j)}
+  for(let k=0;k<5;k++){const v=k/2-1;P(s*(.06+.17*u)+v*(.05+.03*u),-.08-.65*u,.09+.1*u,.3+v*.4,i*5+k+9)}}
+ for(let i=0;i<5;i++)for(let j=0;j<5;j++)P((i-2)*.04,(j-2)*.04,.14,.3,i*5+j);
+}
+function drawWrapper(){
+ const nth=Math.round(120*dens),nh=Math.round(55*dens);
+ for(let i=0;i<nth;i++){const th=i/nth*TAU,th2=th+.35*Math.cos(9*th),nx=Math.cos(th2)/1.3,nz=Math.sin(th2)/1.3,ct=Math.cos(th),st=Math.sin(th);
+  for(let j=0;j<nh;j++){const h=(j+.5)/nh,r=1.9*h*(1+.07*Math.sin(9*th)),y=-2.3+2.4*h*(1+.04*Math.sin(5*th));
+   plot(r*ct,y,r*st,nx,-.8,nz,WHT,0,j*nth+i);
+   const q=h,rc=1.9*(1+.07*Math.sin(9*th))+.3*Math.pow(q,1.4)*(1+.15*Math.sin(7*th+2)),yc=.1+.096*Math.sin(5*th)+.4*q,t3=th+.3*Math.cos(7*th+2);
+   plot(rc*ct,yc,rc*st,.75*Math.cos(t3),-.66,.75*Math.sin(t3),WHT,4,j*nth+i)}
+  const he=1.35/(2.4*(1+.04*Math.sin(5*th))),rb=1.9*he*(1+.07*Math.sin(9*th))+.07;
+  for(let v=-2;v<=2;v++)plot(rb*ct,-.95+v*.035,rb*st,nx*1.3,0,nz*1.3,PINK,1,i*5+v+2);
+ }
+ drawBow();
+}
+
+// ---- floating affirmation whispers
+const floaters=Array.from({length:44},(_,i)=>({m:i,side:i%2,u:Math.random(),p:Math.random(),sp:.03+Math.random()*.035,sz:.7+Math.random()*.4,w:Math.random()}));
+
+// ---- input: wheel / touch / keys control bloomProgress (damped)
+let target=0,bloom=0,ty=null;
+const clamp=v=>Math.max(0,Math.min(1,v));
+addEventListener('wheel',e=>{e.preventDefault();target=clamp(target+e.deltaY*.0011)},{passive:false});
+addEventListener('touchstart',e=>{ty=e.touches[0].clientY},{passive:true});
+addEventListener('touchmove',e=>{e.preventDefault();const y=e.touches[0].clientY;if(ty!==null)target=clamp(target+(ty-y)/(innerHeight*.55));ty=y},{passive:false});
+addEventListener('touchend',()=>{ty=null});
+addEventListener('keydown',e=>{if(['ArrowDown','PageDown',' '].includes(e.key))target=clamp(target+.12);if(['ArrowUp','PageUp'].includes(e.key))target=clamp(target-.12)});
+
+// ---- main loop
+let last=performance.now()/1000,hintTxt='';
+const sm=x=>x*x*(3-2*x);
+function frame(now){
+ const t=now/1000,dt=Math.min(.05,t-last);last=t;
+ bloom+=(target-bloom)*(1-Math.exp(-dt*4.5));
+ const ry=t*.35,tilt=.5+.04*Math.sin(t*.7);
+ cY=Math.cos(ry);sY=Math.sin(ry);cT=Math.cos(tilt);sT=Math.sin(tilt);
+ zb.fill(-1e9);chr.fill(0);
+ drawWrapper();
+ for(const f of flowers){drawStem(f);drawFlower(f,sm(clamp(bloom*1.35-f.del)))}
+ const lb=sm(bloom);for(const lf of leaves)drawLeaf(lf,lb);
+
+ ctx.fillStyle='#0d0d0d';ctx.fillRect(0,0,W,H);
+ ctx.textAlign='center';ctx.textBaseline='middle';
+ const fw=W/2-2.9*S,band=fw>150;
+ for(const q of floaters){const ph=t*q.sp+q.p,life=ph%1,a=Math.sin(Math.PI*life)*(.16+.2*q.w)*(.45+.55*bloom)*(band?1:.6);
+  ctx.font=((Math.max(12,Math.min(18,W/95))*q.sz)|0)+'px '+FONT;
+  const tx=MSGS[(q.m+Math.floor(ph)*7)%MSGS.length],w2=ctx.measureText(tx).width/2;
+  let x=(band?(q.side?W-fw/2:fw/2)+(q.u-.5)*fw*.35:W*(.1+.8*q.u))+Math.sin(t*.6+q.p*9)*14;
+  x=Math.max(w2+8,Math.min(W-w2-8,x));
+  ctx.fillStyle=`rgba(${q.w>.7?'255,225,150':'255,150,210'},${a})`;
+  ctx.fillText(tx,x,H*(.92-life*.84))}
+ ctx.font=fs+'px '+FONT;
+ let lastc=-1;
+ for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const i=r*cols+c,k=chr[i];if(!k)continue;
+  if(co[i]!==lastc){ctx.fillStyle=STY[co[i]];lastc=co[i]}
+  const tx=TXT[k-1];ctx.fillText(tx[gi[i]%tx.length],(c+.5)*cw,(r+.5)*chh)}
+
+ const ht=`[ scroll to ${target>.5?'close':'bloom'} ]  ${Math.round(bloom*100)}%`;
+ if(ht!==hintTxt){hintTxt=ht;hintEl.textContent=ht}
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
