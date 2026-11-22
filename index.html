@@ -9,6 +9,9 @@ html,body{margin:0;height:100%;background:#0d0d0d;overflow:hidden;overscroll-beh
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;right:max(16px,env(safe-area-inset-right));top:max(12px,env(safe-area-inset-top));
  font:12px ui-monospace,Menlo,Consolas,"Courier New",monospace;color:#6f6f6f;letter-spacing:.04em;pointer-events:none}
+#musicBtn{position:fixed;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));z-index:20;
+ padding:5px 10px;border:1px solid rgba(236,230,214,.22);border-radius:6px;background:rgba(13,13,13,.78);
+ color:#ece6d6;font:12px ui-monospace,Menlo,Consolas,"Courier New",monospace;letter-spacing:.04em;cursor:pointer}
 #book{position:fixed;inset:0;perspective:1100px;perspective-origin:50% 88%;pointer-events:none}
 .pg{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box;padding:6px;background:#ece6d6;border-radius:6px;overflow:hidden;opacity:0;will-change:transform,opacity;backface-visibility:hidden;box-shadow:0 14px 40px rgba(0,0,0,.65)}
 .pg img{display:block;width:100%;height:100%;object-fit:cover;border-radius:2px}
@@ -19,14 +22,48 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 <canvas id="c"></canvas>
 <div id="book"><div class="pg l"><img alt=""></div><div class="pg r"><img alt=""></div></div>
 <div id="hint">[]</div>
+<button id="musicBtn" type="button" aria-label="Toggle music">Music: Off</button>
+<audio id="bgm" loop preload="auto"></audio>
 <script>
 (()=>{
 const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
 const bookEl=document.getElementById('book'),pgL=bookEl.querySelector('.l'),pgR=bookEl.querySelector('.r'),imgL=pgL.querySelector('img'),imgR=pgR.querySelector('img');
+const bgm=document.getElementById('bgm'),musicBtn=document.getElementById('musicBtn');
 const FONT='ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace';
 const TAU=Math.PI*2,D=14;
 const MSGS=["I love you so so much babyyy","cute kaayo pag ga smile ka","I'm so proud of you","You make my life brighter","Always by your side","You are enough, just as you are","Every day with you is my favorite","You deserve every good thing","You're my favorite person","Your smile fixes everything","I believe in you, always babyyy","You're doing amazing, babyyy","Thank you for being you","You are so so loved","I'm here, always","Home is wherever you are","I adore you more every day","You light up every room","I'm so grateful for you","Take your time, I've got you","You are my sunshine","kiss","You're beautiful inside and out","I choose you, every single day","You are magic, babyyy","Rest, you've earned it","My heart is yours","You're my best everything","I'm so lucky it's you","You're stronger than you know","I'll hold your hand always","Mwah, I miss you already","You're my safe place","Everything is better with you","You're loved more than you know","I'm cheering for you always","You're my favorite hello","I fall for you every day","You're so worth it","You're my happy place","Thank you for loving me","You did so well today","You make me better","I'm yours, babyyy","Look how far you've come","You're everything to me","I'm proud to be yours"];
 const TXT=MSGS.map(m=>m.replace(/\s+/g,''));
+
+// ---- background music: music/its not living.mp3
+bgm.src=encodeURI('music/its not living.mp3');
+let musicUnlocked=false;
+function syncMusicBtn(){
+ musicBtn.textContent=bgm.paused?'Music: Off':'Music: On';
+}
+async function tryAutoplay(){
+ if(musicUnlocked||!bgm.paused)return;
+ try{
+  await bgm.play();
+  musicUnlocked=true;
+ }catch(_){}
+ syncMusicBtn();
+}
+musicBtn.addEventListener('click',async(e)=>{
+ e.stopPropagation();
+ musicUnlocked=true;
+ if(bgm.paused){
+  try{await bgm.play()}catch(_){}
+ }else{
+  bgm.pause();
+ }
+ syncMusicBtn();
+});
+bgm.addEventListener('play',syncMusicBtn);
+bgm.addEventListener('pause',syncMusicBtn);
+for(const ev of['pointerdown','wheel','touchstart','keydown']){
+ addEventListener(ev,tryAutoplay,{passive:true});
+}
+tryAutoplay();
 
 // ---- palette: pink, red, yellow, orange, green, off-white, sunflower-center brown; 8 brightness levels each
 const BASE=['#ff79c6','#ff3b3b','#ffd93d','#ff9a1f','#3ddc57','#ece6d6','#c07a34'];
