@@ -60,9 +60,9 @@ const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
 (()=>{
  const defs=[['red',0,2.05,0,.5]];
  const ring=(ty,r,y,o,sc)=>ty.forEach((t,k)=>{const a=k/ty.length*TAU+o;defs.push([t,r*Math.cos(a),y,r*Math.sin(a),t=='sun'?sc*1.12:sc])});
- ring(['red','cosmos','red','cosmos','red','cosmos','red'],.95,1.75,.3,.44);
- ring(['cosmos','red','cosmos','red','tulip','red','cosmos','red','cosmos','red'],1.6,1.3,.5,.44);
- ring(['red','cosmos','sun','red','cosmos','red','cosmos','sun','red','cosmos','red'],2.2,.85,.2,.44);
+ ring(['red','cosmos','red','cosmos','red','cosmos'],.95,1.75,.3,.47);
+ ring(['cosmos','red','cosmos','red','tulip','red','cosmos','red'],1.6,1.3,.5,.47);
+ ring(['red','cosmos','sun','red','cosmos','red','sun','cosmos','red'],2.2,.85,.2,.47);
  defs.forEach((d,i)=>{
   const H=[d[1],d[2],d[3]],A=nrm([H[0]*.6,1.2,H[2]*.6]),ref=Math.abs(A[2])>.9?[1,0,0]:[0,0,1],U=nrm(cross(A,ref)),V=cross(A,U);
   flowers.push({tid:i%32,t:d[0],H,A,U,V,sc:d[4],del:(i*.37%1)*.33,rot:i*1.7,C:[(H[0]-A[0]*1.2)*.7,H[1]-A[1]*1.2,(H[2]-A[2]*1.2)*.7]});
@@ -79,7 +79,7 @@ function resize(){
  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);
  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
  ctx.setTransform(dpr,0,0,dpr,0,0);
- fs=Math.max(7,Math.min(14,Math.round(Math.min(W/105,H/85))));
+ fs=Math.max(6,Math.min(13,Math.round(Math.min(W/112,H/90))));
  ctx.font=fs+'px '+FONT;
  cw=Math.max(1,ctx.measureText('M').width);
  chh=Math.max(1,fs*1.02);
@@ -87,7 +87,7 @@ function resize(){
  rows=Math.max(1,Math.ceil(H/chh));
  zb=new Float32Array(cols*rows);chr=new Uint8Array(cols*rows);co=new Uint8Array(cols*rows);gi=new Uint16Array(cols*rows);
  cardSize();const Hb=H-resv; // bouquet gets the space above the photo strip
- S=Math.min(Hb*.9/5.2,W*.88/5.8);cx0=W/2;cy0=Hb*.52;dens=Math.max(.75,Math.min(1.6,S/chh/9));
+ S=Math.min(Hb*.96/4.7,W*.95/5.2);cx0=W/2;cy0=(Hb-4.7*S)/2+2.6*S;dens=Math.max(.75,Math.min(1.6,S/chh/9));
  layout();
 }
 
@@ -201,7 +201,7 @@ Promise.all(PHOTOS.map(n=>new Promise(ok=>{
 function cardSize(){ // card height scales with the screen; resv = strip kept free for the cards
  cardH=Math.min(Math.max(64,H*.26),230,(W-44)/2*1.3);
  cardW=cardH/1.3;
- resv=H<300?0:cardH+56;
+ resv=H<300?0:cardH+44;
 }
 function layout(){
  const gap=14;
