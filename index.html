@@ -65,13 +65,14 @@ for(const ev of['pointerdown','wheel','touchstart','keydown']){
 }
 tryAutoplay();
 
-// ---- palette: pink, red, yellow, orange, green, off-white, sunflower-center brown; 8 brightness levels each
-const BASE=['#ff79c6','#ff3b3b','#ffd93d','#ff9a1f','#3ddc57','#ece6d6','#c07a34'];
-const STY=[];
-for(const h of BASE){
- const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);
- for(let l=0;l<8;l++){const m=.4+.6*l/7;STY.push(`rgb(${r*m|0},${g*m|0},${b*m|0})`)}
-}
+// ---- palette: each colour is a 3-stop gradient (deep -> base -> light); LUT = packed RGB [colour][gradient 16][shade 32]
+const STOPS=[['#a8195f','#ff6fb8','#ffb0da'],['#6e0a12','#e5222b','#ff5a44'],['#d98a00','#ffd23a','#fff2a8'],['#bd4600','#ff8a1c','#ffc766'],['#1c7233','#43d65c','#b8f58c'],['#b9b2a0','#ece6d6','#ffffff'],['#4d2c10','#a8692c','#e0a05a']].map(a=>a.map(h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16))));
+const LUT=new Uint32Array(7*16*32);
+for(let c=0;c<7;c++)for(let g=0;g<16;g++){
+ const u=g/15,A=u<.5?STOPS[c][0]:STOPS[c][1],B=u<.5?STOPS[c][1]:STOPS[c][2],k=u<.5?u*2:(u-.5)*2;
+ for(let s=0;s<32;s++){const t=s/31,m=.3+.7*Math.min(1,t*1.1),w=Math.max(0,t-.85)*.35;
+  const ch=j=>Math.min(255,((A[j]+(B[j]-A[j])*k)*m+255*w)|0);
+  LUT[(c*16+g)*32+s]=(ch(2)<<16)|(ch(1)<<8)|ch(0)}}
 const PINK=0,RED=1,YEL=2,ORG=3,GRN=4,WHT=5,BRN=6;
 
 // ---- flower definitions: petal rings. a0 = base angle above petal plane [closed,open], k = curl rate [closed,open]
@@ -108,7 +109,8 @@ const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]
 })();
 
 // ---- state
-let W,H,dpr,cw,chh,cols,rows,zb,chr,gi,co,S,cx0,cy0,dens=1,fs;
+let W,H,dpr,cw,chh,cols,rows,zb,chr,gi,co,S,cx0,cy0,dens=1,fs,bx0=0,by0=0,bd=1,bcv,bctx,bimg,b32,gw=3,gh=5;
+const gl=new Map(),PS=[],VE=[];let ZB=0;
 let cY,sY,cT,sT;
 const Lv=nrm([-.35,.65,.75]);
 function resize(){
@@ -116,74 +118,87 @@ function resize(){
  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);
  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
  ctx.setTransform(dpr,0,0,dpr,0,0);
- fs=Math.max(6,Math.min(13,Math.round(Math.min(W/112,H/90))));
- ctx.font=fs+'px '+FONT;
- cw=Math.max(1,ctx.measureText('M').width);
- chh=Math.max(1,fs*1.02);
- cols=Math.max(1,Math.ceil(W/cw));
- rows=Math.max(1,Math.ceil(H/chh));
- zb=new Float32Array(cols*rows);chr=new Uint8Array(cols*rows);co=new Uint8Array(cols*rows);gi=new Uint16Array(cols*rows);
  cardSize();const Hb=H-resv; // bouquet gets the space above the photo strip
- S=Math.min(Hb*.96/4.7,W*.95/5.2);cx0=W/2;cy0=(Hb-4.7*S)/2+2.6*S;dens=Math.max(.75,Math.min(1.6,S/chh/9));
+ S=Math.min(Hb*.96/4.7,W*.95/5.2);cx0=W/2;cy0=(Hb-4.7*S)/2+2.6*S;
+ bd=Math.min(dpr,2);fs=Math.max(4,S*.036); // fine glyph grid: ~110 rows over the bouquet
+ gw=Math.max(3,Math.round(fs*.6*bd));gh=Math.max(5,Math.round(fs*1.05*bd));cw=gw/bd;chh=gh/bd;
+ bx0=Math.max(0,Math.floor(cx0-3.3*S));by0=0;
+ const bw=Math.min(W,Math.ceil(cx0+3.3*S))-bx0,bh=Math.max(1,Math.ceil(Hb));
+ cols=Math.max(1,Math.ceil(bw/cw));rows=Math.max(1,Math.ceil(bh/chh));
+ zb=new Float32Array(cols*rows);chr=new Uint8Array(cols*rows);co=new Uint32Array(cols*rows);gi=new Uint16Array(cols*rows);
+ bcv=document.createElement('canvas');bcv.width=cols*gw;bcv.height=rows*gh;bctx=bcv.getContext('2d');
+ bimg=bctx.createImageData(bcv.width,bcv.height);b32=new Uint32Array(bimg.data.buffer);gl.clear();
+ dens=Math.max(.75,Math.min(2.2,S/chh/9));
  layout();
 }
 
 // ---- z-buffered point plotter
-function plot(x,y,z,nx,ny,nz,c,t,g){
+function glyph(ch){let m=gl.get(ch);if(m)return m;
+ const c=document.createElement('canvas');c.width=gw;c.height=gh;const x=c.getContext('2d');
+ x.font='bold '+Math.round(gh*.95)+'px '+FONT;x.textAlign='center';x.textBaseline='middle';x.fillStyle='#fff';x.fillText(ch,gw/2,gh/2+.5);
+ const d=x.getImageData(0,0,gw,gh).data;m=new Uint8Array(gw*gh);
+ for(let i=0;i<m.length;i++)m[i]=Math.min(255,Math.pow(d[i*4+3]/255,.5)*330);
+ gl.set(ch,m);return m}
+function plot(x,y,z,nx,ny,nz,c,t,g,q,e){
  const x1=x*cY+z*sY,z1=-x*sY+z*cY,y2=y*cT-z1*sT,z2=y*sT+z1*cT,f=D/Math.max(.5,(D-z2));
- const col=((cx0+x1*S*f)/cw)|0,row=((cy0-y2*S*f)/chh)|0;
+ const col=Math.floor((cx0-bx0+x1*S*f)/cw),row=Math.floor((cy0-by0-y2*S*f)/chh);
  if(col<0||col>=cols||row<0||row>=rows)return;
- const i=row*cols+col;if(z2<=zb[i])return;
+ const i=row*cols+col,zz=z2+ZB;if(zz<=zb[i])return;
  const a=nx*cY+nz*sY,b=-nx*sY+nz*cY,m=ny*cT-b*sT,n=ny*sT+b*cT;
- const sh=Math.min(.999,.12+.95*Math.abs(a*Lv[0]+m*Lv[1]+n*Lv[2]));
- zb[i]=z2;chr[i]=t+1;gi[i]=g;co[i]=c*8+((sh*8)|0);
+ const sh=Math.max(0,Math.min(.999,.16+.9*Math.abs(a*Lv[0]+m*Lv[1]+n*Lv[2])+(e||0)));
+ zb[i]=zz;chr[i]=t+1;gi[i]=g;co[i]=LUT[(c*16+(q===undefined?8:(Math.max(0,Math.min(.999,q))*16)|0))*32+((sh*32)|0)];
 }
 
 const RA=[],AX=[],WW=[],CA=[],SA=[];
 function drawFlower(f,b){
- const T=TYPES[f.t],A=f.A,U=f.U,V=f.V,H=f.H,sc=f.sc,ns=Math.round(8*dens),nt=Math.round(6*dens);
+ const T=TYPES[f.t],A=f.A,U=f.U,V=f.V,H=f.H,sc=f.sc,uR=S*sc/chh,uC=S*sc/cw;
  for(const g of T.rings){
   const a0=g.a0[0]+(g.a0[1]-g.a0[0])*b;let k=g.k[0]+(g.k[1]-g.k[0])*b;if(Math.abs(k)<.02)k=.02;
-  const lat=.6+.4*b;
+  const lat=.6+.4*b,ns=Math.max(6,Math.min(40,Math.round(g.R*uR*1.25))),nt=Math.max(4,Math.min(32,Math.round(2*g.W*lat*uC)));
   for(let i=0;i<ns;i++){const s=(i+.5)/ns,al=a0+k*s;
    RA[i]=g.r0+g.R*(Math.sin(al)-Math.sin(a0))/k;AX[i]=g.R*(Math.cos(a0)-Math.cos(al))/k;
-   WW[i]=wd(g.sh,s)*g.W;CA[i]=Math.cos(al);SA[i]=Math.sin(al)}
+   WW[i]=wd(g.sh,s)*g.W;CA[i]=Math.cos(al);SA[i]=Math.sin(al);PS[i]=s}
+  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1;VE[j]=-.16*Math.exp(-t*t*60)-.09*Math.pow(Math.abs(Math.sin(t*9.4)),10)-.42*Math.pow(Math.abs(t),7)} // midrib + veins
   for(let p=0;p<g.n;p++){
-   const phi=(p+(g.off||0))/g.n*TAU+f.rot,cp=Math.cos(phi),sp=Math.sin(phi);
+   const phi=(p+(g.off||0))/g.n*TAU+f.rot,cp=Math.cos(phi),sp=Math.sin(phi),tint=((p*37)%7)/7*.12-.06;
    const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
    const lx=-sp*U[0]+cp*V[0],ly=-sp*U[1]+cp*V[1],lz=-sp*U[2]+cp*V[2];
    for(let i=0;i<ns;i++){
+    const s=PS[i],w=WW[i]*.88*(1+(g.sh==2?.07:.03)*Math.sin(s*15+p*2.3)); // rippled petal edge
     const nx=-SA[i]*ex+CA[i]*A[0],ny=-SA[i]*ey+CA[i]*A[1],nz=-SA[i]*ez+CA[i]*A[2];
     for(let j=0;j<nt;j++){
-     const t=(j+.5)/nt*2-1,lt=t*WW[i]*lat,ax=AX[i]+.3*t*t*WW[i]*b;
-     plot(H[0]+sc*(RA[i]*ex+ax*A[0]+lt*lx),H[1]+sc*(RA[i]*ey+ax*A[1]+lt*ly),H[2]+sc*(RA[i]*ez+ax*A[2]+lt*lz),nx,ny,nz,T.c,f.tid,p*ns*nt+i*nt+j);
+     const t=(j+.5)/nt*2-1;
+     if(g.sh==0&&s>.85&&Math.abs(t)<(s-.85)*2.4)continue; // notched petal tip
+     const lt=t*w*lat,ax=AX[i]+.3*t*t*w*b,fx=.6*t;
+     plot(H[0]+sc*(RA[i]*ex+ax*A[0]+lt*lx),H[1]+sc*(RA[i]*ey+ax*A[1]+lt*ly),H[2]+sc*(RA[i]*ez+ax*A[2]+lt*lz),
+      nx+fx*lx,ny+fx*ly,nz+fx*lz,T.c,f.tid,p*97+i*(nt+7)+j,.12+.72*s+.14*t*t+tint,VE[j]*(.4+s));
     }}}
  }
  if(T.ctr){
-  const cr=T.ctr.r*(.55+.45*b),N=Math.round(170*dens*Math.max(.4,T.ctr.r*2));
+  const cr=T.ctr.r*(.55+.45*b),N=Math.round(Math.PI*cr*cr*uR*uC*1.8)+10;
   for(let i=0;i<N;i++){
    const q=(i+.5)/N,rr=cr*Math.sqrt(q),th=i*2.39996,cp=Math.cos(th),sp=Math.sin(th),ax=T.ctr.dome*.14*(1-q)+.02;
    const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
    plot(H[0]+sc*(rr*ex+ax*A[0]),H[1]+sc*(rr*ey+ax*A[1]),H[2]+sc*(rr*ez+ax*A[2]),
-    A[0]+.6*Math.sqrt(q)*ex,A[1]+.6*Math.sqrt(q)*ey,A[2]+.6*Math.sqrt(q)*ez,T.ctr.c,f.tid,i);
+    A[0]+.6*Math.sqrt(q)*ex,A[1]+.6*Math.sqrt(q)*ey,A[2]+.6*Math.sqrt(q)*ez,T.ctr.c,f.tid,i,.1+.6*Math.sqrt(q),i%8<2?-.22:0); // seed texture
   }
  }
 }
 function drawStem(f){
- const n=Math.round(60*dens),C=f.C,Hh=f.H;
+ const n=Math.round(6*S/chh),C=f.C,Hh=f.H;
  for(let i=0;i<=n;i++){
-  const t=i/n,u=1-t,a=u*u,b=2*u*t,c=t*t;
+  const t=i/n,u=1-t,a=u*u,b=2*u*t,c=t*t,q=.15+.6*t;
   const x=a*APEX[0]+b*C[0]+c*Hh[0],y=a*APEX[1]+b*C[1]+c*Hh[1],z=a*APEX[2]+b*C[2]+c*Hh[2];
-  plot(x,y,z,.5,.3,.8,GRN,f.tid,i);plot(x+.03,y,z+.03,.5,.3,.8,GRN,f.tid,i+2);
+  plot(x,y,z,.5,.3,.8,GRN,f.tid,i,q);plot(x+.03,y,z+.03,.5,.3,.8,GRN,f.tid,i+2,q);
  }
 }
 function drawLeaf(lf,b){
  const el=1.25-.35*b,ce=Math.cos(el),se=Math.sin(el),ct=Math.cos(lf.th),st=Math.sin(lf.th);
  const d=[ce*ct,se,ce*st],l=[-st,0,ct],nn=[d[1]*l[2],d[2]*l[0]-d[0]*l[2],-d[1]*l[0]];
- const O=[1.4*ct,.1,1.4*st],ns=Math.round(10*dens),nt=Math.round(7*dens);
- for(let i=0;i<ns;i++){const s=(i+.5)/ns,w=.3*Math.sin(Math.PI*Math.pow(s,.8)),r=s*lf.L,dr=.3*s*s;
-  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1;
-   plot(O[0]+d[0]*r+l[0]*t*w,O[1]+d[1]*r-dr,O[2]+d[2]*r+l[2]*t*w,nn[0]+l[0]*t*.6,nn[1],nn[2]+l[2]*t*.6,GRN,3,i*nt+j);
+ const O=[1.4*ct,.1,1.4*st],ns=Math.max(8,Math.min(44,Math.round(lf.L*S/chh))),nt=Math.max(5,Math.min(20,Math.round(.45*S/cw)));
+ for(let i=0;i<ns;i++){const s=(i+.5)/ns,w=.3*Math.sin(Math.PI*Math.pow(s,.8)),r=s*lf.L,dr=.3*s*s,vn=((s*12)%1)<.12;
+  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1,at=Math.abs(t);
+   plot(O[0]+d[0]*r+l[0]*t*w,O[1]+d[1]*r-dr,O[2]+d[2]*r+l[2]*t*w,nn[0]+l[0]*t*.8,nn[1],nn[2]+l[2]*t*.8,GRN,3,i*nt+j,.1+.8*s,at<.07?-.2:(vn&&at>.15?-.1:0));
   }}
 }
 function drawBow(){
@@ -196,14 +211,15 @@ function drawBow(){
  for(let i=0;i<5;i++)for(let j=0;j<5;j++)P((i-2)*.04,(j-2)*.04,.14,.3,i*5+j);
 }
 function drawWrapper(){
- const nth=Math.round(120*dens),nh=Math.round(55*dens);
- for(let i=0;i<nth;i++){const th=i/nth*TAU,th2=th+.35*Math.cos(9*th),nx=Math.cos(th2)/1.3,nz=Math.sin(th2)/1.3,ct=Math.cos(th),st=Math.sin(th);
-  for(let j=0;j<nh;j++){const h=(j+.5)/nh,r=1.9*h*(1+.07*Math.sin(9*th)),y=-2.3+2.4*h*(1+.04*Math.sin(5*th));
-   plot(r*ct,y,r*st,nx,-.8,nz,WHT,0,j*nth+i);
-   const q=h,rc=1.9*(1+.07*Math.sin(9*th))+.3*Math.pow(q,1.4)*(1+.15*Math.sin(7*th+2)),yc=.1+.096*Math.sin(5*th)+.4*q,t3=th+.3*Math.cos(7*th+2);
-   plot(rc*ct,yc,rc*st,.75*Math.cos(t3),-.66,.75*Math.sin(t3),WHT,4,j*nth+i)}
-  const he=1.35/(2.4*(1+.04*Math.sin(5*th))),rb=1.9*he*(1+.07*Math.sin(9*th))+.07;
-  for(let v=-2;v<=2;v++)plot(rb*ct,-.95+v*.035,rb*st,nx*1.3,0,nz*1.3,PINK,1,i*5+v+2);
+ const nth=Math.round(10*S/cw),nh=Math.round(3*S/chh),nc=Math.max(8,Math.round(1.3*S/chh));
+ for(let i=0;i<nth;i++){const th=i/nth*TAU,th2=th+.35*Math.cos(9*th),nx=Math.cos(th2)/1.3,nz=Math.sin(th2)/1.3,ct=Math.cos(th),st=Math.sin(th),back=st*cY-ct*sY<-.25;
+  const pl=1+.07*Math.sin(9*th),wob=1+.04*Math.sin(5*th);
+  for(let j=back?(nh*.78|0):0;j<nh;j++){const h=(j+.5)/nh,r=1.9*h*pl;
+   plot(r*ct,-2.3+2.4*h*wob,r*st,nx,-.8,nz,WHT,0,j*nth+i,.35+.5*h,Math.sin(9*th)*.1)}
+  for(let j=0;j<nc;j++){const q=(j+.5)/nc,rc=1.9*pl+.3*Math.pow(q,1.4)*(1+.15*Math.sin(7*th+2)),yc=.1+.096*Math.sin(5*th)+.4*q,t3=th+.3*Math.cos(7*th+2);
+   plot(rc*ct,yc,rc*st,.75*Math.cos(t3),-.66,.75*Math.sin(t3),WHT,4,j*nth+i,.5+.4*q,0)}
+  if(!back){const rb=1.9*(1.35/(2.4*wob))*pl+.07;
+   for(let v=-2;v<=2;v++)plot(rb*ct,-.95+v*.035,rb*st,nx*1.3,0,nz*1.3,PINK,1,i*5+v+2,.5)}
  }
  drawBow();
 }
@@ -316,7 +332,7 @@ function frame(now){
  cY=Math.cos(ry);sY=Math.sin(ry);cT=Math.cos(tilt);sT=Math.sin(tilt);
  zb.fill(-1e9);chr.fill(0);
  drawWrapper();
- for(const f of flowers){drawStem(f);drawFlower(f,sm(clamp(bloom*1.35-f.del)))}
+ for(const f of flowers){drawStem(f);ZB=.4;drawFlower(f,sm(clamp(bloom*1.35-f.del)));ZB=0}
  const lb=sm(bloom);for(const lf of leaves)drawLeaf(lf,lb);
 
  ctx.fillStyle='#0d0d0d';ctx.fillRect(0,0,W,H);
@@ -331,13 +347,13 @@ function frame(now){
   ctx.fillStyle=`rgba(${q.w>.7?'255,225,150':'255,150,210'},${a})`;
   ctx.fillText(tx,x,H*(.92-life*.84));
  }
- ctx.font=fs+'px '+FONT;
- let lastc=-1;
+ b32.fill(0);const bwp=bcv.width;
  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
   const i=r*cols+c,k=chr[i];if(!k)continue;
-  if(co[i]!==lastc){ctx.fillStyle=STY[co[i]];lastc=co[i]}
-  const tx=TXT[k-1];ctx.fillText(tx[gi[i]%tx.length],(c+.5)*cw,(r+.5)*chh);
+  const tx=TXT[k-1],m=glyph(tx[gi[i]%tx.length]),rgb=co[i],base=r*gh*bwp+c*gw;
+  for(let y=0,p=0;y<gh;y++){const o=base+y*bwp;for(let x=0;x<gw;x++,p++){const a=m[p];if(a>10)b32[o+x]=(a<<24)|rgb}}
  }
+ bctx.putImageData(bimg,0,0);ctx.drawImage(bcv,bx0,by0,bcv.width/bd,bcv.height/bd);
 
  const ht=`   ${Math.round(bloom*100)}%`;
  if(ht!==hintTxt){hintTxt=ht;hintEl.textContent=ht}
