@@ -9,6 +9,12 @@ html,body{margin:0;height:100%;background:#0d0d0d;overflow:hidden;overscroll-beh
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 #hint{position:fixed;right:max(16px,env(safe-area-inset-right));top:max(12px,env(safe-area-inset-top));
  font:12px ui-monospace,Menlo,Consolas,"Courier New",monospace;color:#6f6f6f;letter-spacing:.04em;pointer-events:none}
+#tapPrompt{position:fixed;left:50%;bottom:max(28px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:15;
+ padding:8px 16px;border:1px solid rgba(255,111,184,.45);border-radius:999px;background:rgba(13,13,13,.82);
+ color:#ffb0da;font:13px ui-monospace,Menlo,Consolas,"Courier New",monospace;letter-spacing:.06em;
+ cursor:pointer;animation:pulse 1.6s ease-in-out infinite;transition:opacity .35s ease}
+#tapPrompt.hide{opacity:0;pointer-events:none}
+@keyframes pulse{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.06)}}
 #musicBtn{position:fixed;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));z-index:20;
  padding:5px 10px;border:1px solid rgba(236,230,214,.22);border-radius:6px;background:rgba(13,13,13,.78);
  color:#ece6d6;font:12px ui-monospace,Menlo,Consolas,"Courier New",monospace;letter-spacing:.04em;cursor:pointer}
@@ -22,11 +28,12 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 <canvas id="c"></canvas>
 <div id="book"><div class="pg l"><img alt=""></div><div class="pg r"><img alt=""></div></div>
 <div id="hint">[]</div>
+<button id="tapPrompt" type="button">Tap to open surprise</button>
 <button id="musicBtn" type="button" aria-label="Toggle music">Music: Off</button>
 <audio id="bgm" loop preload="auto"></audio>
 <script>
 (()=>{
-const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint');
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),hintEl=document.getElementById('hint'),tapPrompt=document.getElementById('tapPrompt');
 const bookEl=document.getElementById('book'),pgL=bookEl.querySelector('.l'),pgR=bookEl.querySelector('.r'),imgL=pgL.querySelector('img'),imgR=pgR.querySelector('img');
 const bgm=document.getElementById('bgm'),musicBtn=document.getElementById('musicBtn');
 const FONT='ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace';
@@ -75,7 +82,25 @@ for(let c=0;c<7;c++)for(let g=0;g<16;g++){
   LUT[(c*16+g)*32+s]=(ch(2)<<16)|(ch(1)<<8)|ch(0)}}
 const PINK=0,RED=1,YEL=2,ORG=3,GRN=4,WHT=5,BRN=6;
 
-// ---- flower definitions: petal rings. a0 = base angle above petal plane [closed,open], k = curl rate [closed,open]
+// ---- surprise box state & confetti
+let boxState='closed'; // 'closed' | 'opening' | 'open'
+let boxTimer=0,boxOpen=0;
+const confetti=Array.from({length:75},(_,i)=>{
+ const a=Math.random()*TAU,sp=1.4+Math.random()*2.8,vy=1.8+Math.random()*3.2;
+ return{vx:Math.cos(a)*sp,vy,vz:Math.sin(a)*sp,c:[PINK,RED,YEL,WHT,ORG][i%5],g:i};
+});
+
+function triggerBoxOpen(){
+ if(boxState!=='closed')return;
+ boxState='opening';
+ boxTimer=0;
+ tapPrompt.classList.add('hide');
+ tryAutoplay();
+}
+tapPrompt.addEventListener('click',e=>{e.stopPropagation();triggerBoxOpen()});
+cv.addEventListener('pointerdown',()=>{if(boxState==='closed')triggerBoxOpen()});
+
+// ---- flower definitions
 const TYPES={
  cosmos:{c:PINK,ctr:{c:YEL,r:.13,dome:.05},rings:[{n:8,R:.9,W:.34,sh:0,a0:[1.3,.2],k:[.3,-.55],r0:.07}]},
  red:{c:RED,rings:[
@@ -118,12 +143,12 @@ function resize(){
  W=Math.max(1,innerWidth);H=Math.max(1,innerHeight);
  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
  ctx.setTransform(dpr,0,0,dpr,0,0);
- cardSize();const Hb=H-resv; // bouquet gets the space above the photo strip
+ cardSize();const Hb=H-(boxState==='open'?resv:0);
  S=Math.min(Hb*.96/4.7,W*.95/5.2);cx0=W/2;cy0=(Hb-4.7*S)/2+2.6*S;
- bd=Math.min(dpr,2);fs=Math.max(4,S*.036); // fine glyph grid: ~110 rows over the bouquet
+ bd=Math.min(dpr,2);fs=Math.max(4,S*.036);
  gw=Math.max(3,Math.round(fs*.6*bd));gh=Math.max(5,Math.round(fs*1.05*bd));cw=gw/bd;chh=gh/bd;
- bx0=Math.max(0,Math.floor(cx0-3.3*S));by0=0;
- const bw=Math.min(W,Math.ceil(cx0+3.3*S))-bx0,bh=Math.max(1,Math.ceil(Hb));
+ bx0=Math.max(0,Math.floor(cx0-4.2*S));by0=0;
+ const bw=Math.min(W,Math.ceil(cx0+4.2*S))-bx0,bh=Math.max(1,Math.ceil(H));
  cols=Math.max(1,Math.ceil(bw/cw));rows=Math.max(1,Math.ceil(bh/chh));
  zb=new Float32Array(cols*rows);chr=new Uint8Array(cols*rows);co=new Uint32Array(cols*rows);gi=new Uint16Array(cols*rows);
  bcv=document.createElement('canvas');bcv.width=cols*gw;bcv.height=rows*gh;bctx=bcv.getContext('2d');
@@ -139,6 +164,9 @@ function glyph(ch){let m=gl.get(ch);if(m)return m;
  const d=x.getImageData(0,0,gw,gh).data;m=new Uint8Array(gw*gh);
  for(let i=0;i<m.length;i++)m[i]=Math.min(255,Math.pow(d[i*4+3]/255,.5)*330);
  gl.set(ch,m);return m}
+
+// Global transform for bouquet pop-out animation
+let bScale=1,bYOff=0;
 function plot(x,y,z,nx,ny,nz,c,t,g,q,e){
  const x1=x*cY+z*sY,z1=-x*sY+z*cY,y2=y*cT-z1*sT,z2=y*sT+z1*cT,f=D/Math.max(.5,(D-z2));
  const col=Math.floor((cx0-bx0+x1*S*f)/cw),row=Math.floor((cy0-by0-y2*S*f)/chh);
@@ -147,6 +175,117 @@ function plot(x,y,z,nx,ny,nz,c,t,g,q,e){
  const a=nx*cY+nz*sY,b=-nx*sY+nz*cY,m=ny*cT-b*sT,n=ny*sT+b*cT;
  const sh=Math.max(0,Math.min(.999,.16+.9*Math.abs(a*Lv[0]+m*Lv[1]+n*Lv[2])+(e||0)));
  zb[i]=zz;chr[i]=t+1;gi[i]=g;co[i]=LUT[(c*16+(q===undefined?8:(Math.max(0,Math.min(.999,q))*16)|0))*32+((sh*32)|0)];
+}
+function plotB(x,y,z,nx,ny,nz,c,t,g,q,e){
+ plot(x*bScale,y*bScale+bYOff,z*bScale,nx,ny,nz,c,t,g,q,e);
+}
+
+// ---- 3D Surprise Gift Box Renderer (mirrors the pop-open box in the video)
+function drawSurpriseBox(openAmt,shakeX){
+ if(openAmt>=1)return;
+ const halfW=1.25,boxH=2.1,yBot=-1.35,yTop=yBot+boxH;
+ const foldAng=Math.min(1,openAmt*1.25)*(Math.PI*0.56); // 4 walls fling outward flat
+ const lidLift=Math.pow(openAmt,1.3)*4.8;
+ const lidFade=openAmt>.55;
+
+ const nu=Math.max(12,Math.round(2.4*S/cw));
+ const nv=Math.max(10,Math.round(2.0*S/chh));
+
+ // 1. Four side walls that hinge open from the bottom edge
+ const sides=[
+  {dir:[0,0,1],right:[1,0,0]},   // front
+  {dir:[0,0,-1],right:[-1,0,0]}, // back
+  {dir:[1,0,0],right:[0,0,-1]},  // right
+  {dir:[-1,0,0],right:[0,0,1]}   // left
+ ];
+ for(let sIdx=0;sIdx<4;sIdx++){
+  const s=sides[sIdx];
+  const cf=Math.cos(foldAng),sf=Math.sin(foldAng);
+  // Wall normal tilts upward as the wall drops flat
+  const nx=s.dir[0]*cf,ny=sf,nz=s.dir[2]*cf;
+  for(let iv=0;iv<nv;iv++){
+   const v=(iv+.5)/nv; // 0 = bottom hinge, 1 = top edge
+   const h=v*boxH;
+   // Rotate local wall vector (0, h, 0) outward along s.dir by foldAng
+   const rOut=halfW+h*sf;
+   const wy=yBot+h*cf;
+   for(let iu=0;iu<nu;iu++){
+    const u=(iu+.5)/nu*2-1; // -1 to 1 across width
+    const isRibbon=Math.abs(u)<0.16;
+    const col=isRibbon?PINK:WHT;
+    const grad=isRibbon?(0.35+0.45*v):(0.3+0.5*v);
+    const wx=s.dir[0]*rOut+s.right[0]*(u*halfW)+shakeX;
+    const wz=s.dir[2]*rOut+s.right[2]*(u*halfW);
+    plot(wx,wy,wz,nx,ny,nz,col,sIdx,iv*nu+iu,grad,isRibbon?0.08:0);
+   }
+  }
+ }
+
+ // 2. Box floor
+ const nf=Math.max(8,Math.round(2.0*S/cw));
+ for(let ix=0;ix<nf;ix++){
+  const u=(ix+.5)/nf*2-1;
+  for(let iz=0;iz<nf;iz++){
+   const w=(iz+.5)/nf*2-1;
+   plot(u*halfW+shakeX,yBot,w*halfW,0,1,0,WHT,5,ix*nf+iz,0.25);
+  }
+ }
+
+ // 3. Lid & 3D Ribbon Bow (pops upward when opened)
+ if(!lidFade){
+  const lidW=halfW+0.12,lidRim=0.28,ly=yTop+lidLift;
+  const nl=Math.max(10,Math.round(2.5*S/cw));
+  // Lid top cap
+  for(let ix=0;ix<nl;ix++){
+   const u=(ix+.5)/nl*2-1;
+   for(let iz=0;iz<nl;iz++){
+    const w=(iz+.5)/nl*2-1;
+    const isRib=Math.abs(u)<0.15||Math.abs(w)<0.15;
+    plot(u*lidW+shakeX,ly,w*lidW,0,1,0,isRib?PINK:WHT,6,ix*nl+iz,isRib?0.6:0.55);
+   }
+  }
+  // Lid overhanging rim
+  const nr=Math.max(3,Math.round(0.35*S/chh));
+  for(const s of sides){
+   for(let ir=0;ir<nr;ir++){
+    const v=(ir+.5)/nr;
+    for(let iu=0;iu<nl;iu++){
+     const u=(iu+.5)/nl*2-1;
+     const isRib=Math.abs(u)<0.15;
+     const wx=s.dir[0]*lidW+s.right[0]*(u*lidW)+shakeX;
+     const wz=s.dir[2]*lidW+s.right[2]*(u*lidW);
+     plot(wx,ly-v*lidRim,wz,s.dir[0],0,s.dir[2],isRib?PINK:WHT,7,ir*nl+iu,0.45);
+    }
+   }
+  }
+  // Ribbon bow loops on top of the lid (matches the video's top bow silhouette)
+  const nb=Math.max(14,Math.round(1.6*S/cw));
+  for(const side of[-1,1]){
+   for(let i=0;i<nb;i++){
+    const t=(i+.5)/nb*Math.PI;
+    const loopR=0.58*Math.sin(t);
+    const lx=side*(0.12+0.68*Math.sin(t)*Math.cos(t*0.35))+shakeX;
+    const by=ly+0.08+0.55*Math.sin(t);
+    for(let w=-3;w<=3;w++){
+     plot(lx,by,w*0.045,side*0.4,0.8,0.4,PINK,1,i*7+w+3,0.45+0.4*Math.sin(t),0.1);
+    }
+   }
+  }
+ }
+
+ // 4. Confetti burst particles when opening
+ if(openAmt>0.05){
+  const bt=openAmt*1.1;
+  for(let i=0;i<confetti.length;i++){
+   const p=confetti[i];
+   const px=p.vx*bt;
+   const py=yTop-0.3+p.vy*bt-2.2*bt*bt;
+   const pz=p.vz*bt;
+   if(py>yBot-0.5){
+    plot(px,py,pz,0,1,0,p.c,2,p.g,0.75,0.15);
+   }
+  }
+ }
 }
 
 const RA=[],AX=[],WW=[],CA=[],SA=[];
@@ -158,19 +297,19 @@ function drawFlower(f,b){
   for(let i=0;i<ns;i++){const s=(i+.5)/ns,al=a0+k*s;
    RA[i]=g.r0+g.R*(Math.sin(al)-Math.sin(a0))/k;AX[i]=g.R*(Math.cos(a0)-Math.cos(al))/k;
    WW[i]=wd(g.sh,s)*g.W;CA[i]=Math.cos(al);SA[i]=Math.sin(al);PS[i]=s}
-  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1;VE[j]=-.16*Math.exp(-t*t*60)-.09*Math.pow(Math.abs(Math.sin(t*9.4)),10)-.42*Math.pow(Math.abs(t),7)} // midrib + veins
+  for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1;VE[j]=-.16*Math.exp(-t*t*60)-.09*Math.pow(Math.abs(Math.sin(t*9.4)),10)-.42*Math.pow(Math.abs(t),7)}
   for(let p=0;p<g.n;p++){
    const phi=(p+(g.off||0))/g.n*TAU+f.rot,cp=Math.cos(phi),sp=Math.sin(phi),tint=((p*37)%7)/7*.12-.06;
    const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
    const lx=-sp*U[0]+cp*V[0],ly=-sp*U[1]+cp*V[1],lz=-sp*U[2]+cp*V[2];
    for(let i=0;i<ns;i++){
-    const s=PS[i],w=WW[i]*.88*(1+(g.sh==2?.07:.03)*Math.sin(s*15+p*2.3)); // rippled petal edge
+    const s=PS[i],w=WW[i]*.88*(1+(g.sh==2?.07:.03)*Math.sin(s*15+p*2.3));
     const nx=-SA[i]*ex+CA[i]*A[0],ny=-SA[i]*ey+CA[i]*A[1],nz=-SA[i]*ez+CA[i]*A[2];
     for(let j=0;j<nt;j++){
      const t=(j+.5)/nt*2-1;
-     if(g.sh==0&&s>.85&&Math.abs(t)<(s-.85)*2.4)continue; // notched petal tip
+     if(g.sh==0&&s>.85&&Math.abs(t)<(s-.85)*2.4)continue;
      const lt=t*w*lat,ax=AX[i]+.3*t*t*w*b,fx=.6*t;
-     plot(H[0]+sc*(RA[i]*ex+ax*A[0]+lt*lx),H[1]+sc*(RA[i]*ey+ax*A[1]+lt*ly),H[2]+sc*(RA[i]*ez+ax*A[2]+lt*lz),
+     plotB(H[0]+sc*(RA[i]*ex+ax*A[0]+lt*lx),H[1]+sc*(RA[i]*ey+ax*A[1]+lt*ly),H[2]+sc*(RA[i]*ez+ax*A[2]+lt*lz),
       nx+fx*lx,ny+fx*ly,nz+fx*lz,T.c,f.tid,p*97+i*(nt+7)+j,.12+.72*s+.14*t*t+tint,VE[j]*(.4+s));
     }}}
  }
@@ -179,8 +318,8 @@ function drawFlower(f,b){
   for(let i=0;i<N;i++){
    const q=(i+.5)/N,rr=cr*Math.sqrt(q),th=i*2.39996,cp=Math.cos(th),sp=Math.sin(th),ax=T.ctr.dome*.14*(1-q)+.02;
    const ex=cp*U[0]+sp*V[0],ey=cp*U[1]+sp*V[1],ez=cp*U[2]+sp*V[2];
-   plot(H[0]+sc*(rr*ex+ax*A[0]),H[1]+sc*(rr*ey+ax*A[1]),H[2]+sc*(rr*ez+ax*A[2]),
-    A[0]+.6*Math.sqrt(q)*ex,A[1]+.6*Math.sqrt(q)*ey,A[2]+.6*Math.sqrt(q)*ez,T.ctr.c,f.tid,i,.1+.6*Math.sqrt(q),i%8<2?-.22:0); // seed texture
+   plotB(H[0]+sc*(rr*ex+ax*A[0]),H[1]+sc*(rr*ey+ax*A[1]),H[2]+sc*(rr*ez+ax*A[2]),
+    A[0]+.6*Math.sqrt(q)*ex,A[1]+.6*Math.sqrt(q)*ey,A[2]+.6*Math.sqrt(q)*ez,T.ctr.c,f.tid,i,.1+.6*Math.sqrt(q),i%8<2?-.22:0);
   }
  }
 }
@@ -189,7 +328,7 @@ function drawStem(f){
  for(let i=0;i<=n;i++){
   const t=i/n,u=1-t,a=u*u,b=2*u*t,c=t*t,q=.15+.6*t;
   const x=a*APEX[0]+b*C[0]+c*Hh[0],y=a*APEX[1]+b*C[1]+c*Hh[1],z=a*APEX[2]+b*C[2]+c*Hh[2];
-  plot(x,y,z,.5,.3,.8,GRN,f.tid,i,q);plot(x+.03,y,z+.03,.5,.3,.8,GRN,f.tid,i+2,q);
+  plotB(x,y,z,.5,.3,.8,GRN,f.tid,i,q);plotB(x+.03,y,z+.03,.5,.3,.8,GRN,f.tid,i+2,q);
  }
 }
 function drawLeaf(lf,b){
@@ -198,12 +337,12 @@ function drawLeaf(lf,b){
  const O=[1.4*ct,.1,1.4*st],ns=Math.max(8,Math.min(44,Math.round(lf.L*S/chh))),nt=Math.max(5,Math.min(20,Math.round(.45*S/cw)));
  for(let i=0;i<ns;i++){const s=(i+.5)/ns,w=.3*Math.sin(Math.PI*Math.pow(s,.8)),r=s*lf.L,dr=.3*s*s,vn=((s*12)%1)<.12;
   for(let j=0;j<nt;j++){const t=(j+.5)/nt*2-1,at=Math.abs(t);
-   plot(O[0]+d[0]*r+l[0]*t*w,O[1]+d[1]*r-dr,O[2]+d[2]*r+l[2]*t*w,nn[0]+l[0]*t*.8,nn[1],nn[2]+l[2]*t*.8,GRN,3,i*nt+j,.1+.8*s,at<.07?-.2:(vn&&at>.15?-.1:0));
+   plotB(O[0]+d[0]*r+l[0]*t*w,O[1]+d[1]*r-dr,O[2]+d[2]*r+l[2]*t*w,nn[0]+l[0]*t*.8,nn[1],nn[2]+l[2]*t*.8,GRN,3,i*nt+j,.1+.8*s,at<.07?-.2:(vn&&at>.15?-.1:0));
   }}
 }
 function drawBow(){
  const tb=1.2,cb=Math.cos(tb),sb=Math.sin(tb),by=-.95,Rb=1.9*(1.35/2.4)*(1+.07*Math.sin(9*tb))+.07;
- const P=(la,ve,ou,ny,g)=>plot(cb*(Rb+ou)-sb*la,by+ve,sb*(Rb+ou)+cb*la,cb,ny,sb,PINK,1,g);
+ const P=(la,ve,ou,ny,g)=>plotB(cb*(Rb+ou)-sb*la,by+ve,sb*(Rb+ou)+cb*la,cb,ny,sb,PINK,1,g);
  const n=Math.round(14*dens),m=Math.round(9*dens);
  for(const s of[-1,1])for(let i=0;i<n;i++){const u=(i+.5)/n,sn=Math.pow(Math.sin(Math.PI*u),.7);
   for(let j=0;j<m;j++){const v=(j+.5)/m*2-1;P(s*(.08+.5*u),v*.24*sn*(.35+.65*u)+.1*u,.07+.1*Math.sin(Math.PI*u),.3+v*.5,i*m+j)}
@@ -215,11 +354,11 @@ function drawWrapper(){
  for(let i=0;i<nth;i++){const th=i/nth*TAU,th2=th+.35*Math.cos(9*th),nx=Math.cos(th2)/1.3,nz=Math.sin(th2)/1.3,ct=Math.cos(th),st=Math.sin(th),back=st*cY-ct*sY<-.25;
   const pl=1+.07*Math.sin(9*th),wob=1+.04*Math.sin(5*th);
   for(let j=back?(nh*.78|0):0;j<nh;j++){const h=(j+.5)/nh,r=1.9*h*pl;
-   plot(r*ct,-2.3+2.4*h*wob,r*st,nx,-.8,nz,WHT,0,j*nth+i,.35+.5*h,Math.sin(9*th)*.1)}
+   plotB(r*ct,-2.3+2.4*h*wob,r*st,nx,-.8,nz,WHT,0,j*nth+i,.35+.5*h,Math.sin(9*th)*.1)}
   for(let j=0;j<nc;j++){const q=(j+.5)/nc,rc=1.9*pl+.3*Math.pow(q,1.4)*(1+.15*Math.sin(7*th+2)),yc=.1+.096*Math.sin(5*th)+.4*q,t3=th+.3*Math.cos(7*th+2);
-   plot(rc*ct,yc,rc*st,.75*Math.cos(t3),-.66,.75*Math.sin(t3),WHT,4,j*nth+i,.5+.4*q,0)}
+   plotB(rc*ct,yc,rc*st,.75*Math.cos(t3),-.66,.75*Math.sin(t3),WHT,4,j*nth+i,.5+.4*q,0)}
   if(!back){const rb=1.9*(1.35/(2.4*wob))*pl+.07;
-   for(let v=-2;v<=2;v++)plot(rb*ct,-.95+v*.035,rb*st,nx*1.3,0,nz*1.3,PINK,1,i*5+v+2,.5)}
+   for(let v=-2;v<=2;v++)plotB(rb*ct,-.95+v*.035,rb*st,nx*1.3,0,nz*1.3,PINK,1,i*5+v+2,.5)}
  }
  drawBow();
 }
@@ -227,7 +366,7 @@ function drawWrapper(){
 // ---- floating affirmation whispers
 const floaters=Array.from({length:44},(_,i)=>({m:i,side:i%2,u:Math.random(),p:Math.random(),sp:.03+Math.random()*.035,sz:.7+Math.random()*.4,w:Math.random()}));
 
-// ---- photo cards: two separate cards at the bottom, each flips open on its own (left first, right a beat later)
+// ---- photo cards
 const PHOTOS=Array.from({length:19},(_,i)=>`1 (${i+2}).jfif`);
 const DIRS=['','image/'];
 const BLOOM_END=1.6,SPEED=1.8;
@@ -248,17 +387,16 @@ Promise.all(PHOTOS.map(n=>new Promise(ok=>{
  photos=r.filter(Boolean);
  pairs=Math.max(1,Math.ceil(photos.length/2));
  shown=-1;
- if(!photos.length)console.warn('No photos loaded from PHOTOS/DIRS:',PHOTOS,DIRS);
 });
 
-function cardSize(){ // card height scales with the screen; resv = strip kept free for the cards
+function cardSize(){
  cardH=Math.min(Math.max(64,H*.26),230,(W-44)/2*1.3);
  cardW=cardH/1.3;
  resv=H<300?0:cardH+44;
 }
 function layout(){
  const gap=14;
- bookEl.style.display=cardH<64||H<300?'none':'';
+ bookEl.style.display=boxState!=='open'||cardH<64||H<300?'none':'';
  for(const e of[pgL,pgR]){e.style.width=cardW+'px';e.style.height=cardH+'px'}
  pgL.style.left=(W/2-cardW-gap/2)+'px';pgR.style.left=(W/2+gap/2)+'px';
 }
@@ -267,7 +405,7 @@ const clamp=v=>Math.max(0,Math.min(1,v));
 const sm=x=>x*x*(3-2*x);
 
 function nudge(x){
- if(!x)return;
+ if(!x||boxState!=='open')return;
  pos=Math.max(0,pos+x*SPEED);
  dir=x>0?1:-1;
  lastIn=performance.now()/1000;
@@ -289,7 +427,7 @@ function pose(e,o,s){
 }
 function book(p){
  const n=photos.length;
- if(!n){pgL.style.opacity=pgR.style.opacity=0;return}
+ if(!n||boxState!=='open'){pgL.style.opacity=pgR.style.opacity=0;return}
  const sp=Math.max(0,p),k=Math.floor(sp),f=sp-k,pi=k%pairs;
  if(pi!==shown){
   shown=pi;
@@ -300,10 +438,15 @@ function book(p){
  pose(pgR,f<.06?0:ease((f-.06)/.94),-1);
 }
 
-addEventListener('wheel',e=>{e.preventDefault();nudge(e.deltaY*.0011)},{passive:false});
+addEventListener('wheel',e=>{
+ e.preventDefault();
+ if(boxState==='closed'){triggerBoxOpen();return}
+ nudge(e.deltaY*.0011);
+},{passive:false});
 addEventListener('touchstart',e=>{if(e.touches.length)ty=e.touches[0].clientY},{passive:true});
 addEventListener('touchmove',e=>{
  e.preventDefault();
+ if(boxState==='closed'){triggerBoxOpen();return}
  if(!e.touches.length||ty===null)return;
  const y=e.touches[0].clientY;
  nudge((ty-y)/(Math.max(1,innerHeight)*.55));
@@ -311,6 +454,7 @@ addEventListener('touchmove',e=>{
 },{passive:false});
 addEventListener('touchend',()=>{ty=null});
 addEventListener('keydown',e=>{
+ if(boxState==='closed'&&(e.key===' '||e.key==='Enter')){e.preventDefault();triggerBoxOpen();return}
  if(['ArrowDown','PageDown',' '].includes(e.key)){e.preventDefault();nudge(.12)}
  if(['ArrowUp','PageUp'].includes(e.key)){e.preventDefault();nudge(-.12)}
 });
@@ -322,6 +466,27 @@ resize();
 let last=performance.now()/1000,hintTxt='';
 function frame(now){
  const t=now/1000,dt=Math.min(.05,Math.max(0,t-last));last=t;
+
+ // Update surprise box animation
+ let shakeX=0;
+ if(boxState==='closed'){
+  shakeX=Math.sin(t*7)*0.025*Math.max(0,Math.sin(t*2.2));
+ }else if(boxState==='opening'){
+  boxTimer+=dt;
+  if(boxTimer<0.28){
+   // Quick excited shake before popping
+   shakeX=Math.sin(boxTimer*65)*0.11;
+  }else{
+   boxOpen=clamp((boxTimer-0.28)/1.15);
+   if(boxOpen>=1){
+    boxState='open';
+    // Automatically bloom the bouquet slightly when revealed, then let user scroll for 100%
+    pos=0.48;
+    resize();
+   }
+  }
+ }
+
  const dl=(pos-posS)*(1-Math.exp(-dt*4.5)),mx=2.8*dt;
  posS+=Math.max(-mx,Math.min(mx,dl));
  bloom=clamp(posS/BLOOM_END);
@@ -331,15 +496,28 @@ function frame(now){
  const ry=t*.35,tilt=.5+.04*Math.sin(t*.7);
  cY=Math.cos(ry);sY=Math.sin(ry);cT=Math.cos(tilt);sT=Math.sin(tilt);
  zb.fill(-1e9);chr.fill(0);
- drawWrapper();
- for(const f of flowers){drawStem(f);ZB=.4;drawFlower(f,sm(clamp(bloom*1.35-f.del)));ZB=0}
- const lb=sm(bloom);for(const lf of leaves)drawLeaf(lf,lb);
+
+ if(boxState!=='open'){
+  drawSurpriseBox(boxOpen,shakeX);
+ }
+
+ // Pop bouquet out of the box once the lid lifts
+ if(boxOpen>0.12||boxState==='open'){
+  const popU=boxState==='open'?1:sm(clamp((boxOpen-0.12)/0.88));
+  bScale=0.15+0.85*popU;
+  bYOff=-0.9*(1-popU);
+  drawWrapper();
+  for(const f of flowers){drawStem(f);ZB=.4;drawFlower(f,sm(clamp(bloom*1.35-f.del)));ZB=0}
+  const lb=sm(bloom);for(const lf of leaves)drawLeaf(lf,lb);
+ }
 
  ctx.fillStyle='#0d0d0d';ctx.fillRect(0,0,W,H);
  ctx.textAlign='center';ctx.textBaseline='middle';
  const fw=W/2-2.9*S,band=fw>150;
+ const msgVis=boxState==='open'?(.45+.55*bloom):boxOpen*0.6;
  for(const q of floaters){
-  const ph=t*q.sp+q.p,life=ph%1,a=Math.sin(Math.PI*life)*(.16+.2*q.w)*(.45+.55*bloom)*(band?1:.6);
+  const ph=t*q.sp+q.p,life=ph%1,a=Math.sin(Math.PI*life)*(.16+.2*q.w)*msgVis*(band?1:.6);
+  if(a<=0.005)continue;
   ctx.font=((Math.max(12,Math.min(18,W/95))*q.sz)|0)+'px '+FONT;
   const tx=MSGS[(q.m+Math.floor(ph)*7)%MSGS.length],w2=ctx.measureText(tx).width/2;
   let x=(band?(q.side?W-fw/2:fw/2)+(q.u-.5)*fw*.35:W*(.1+.8*q.u))+Math.sin(t*.6+q.p*9)*14;
@@ -355,7 +533,7 @@ function frame(now){
  }
  bctx.putImageData(bimg,0,0);ctx.drawImage(bcv,bx0,by0,bcv.width/bd,bcv.height/bd);
 
- const ht=`   ${Math.round(bloom*100)}%`;
+ const ht=boxState==='closed'?'   [?]':`   ${Math.round(bloom*100)}%`;
  if(ht!==hintTxt){hintTxt=ht;hintEl.textContent=ht}
  requestAnimationFrame(frame);
 }
